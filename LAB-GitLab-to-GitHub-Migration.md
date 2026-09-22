@@ -337,9 +337,38 @@ git switch main
 
 ```bash
 git remote add gitlab "$GITLAB_REPO_URL"
-git push gitlab main develop feature/order-discount --tags
-git ls-remote --heads --tags gitlab
+test -n "${GITLAB_PAT:-}" || {
+  echo "ERROR: GITLAB_PAT is not set. Return to section 3.2 and inject the GitLab PAT."
+  exit 1
+}
+
+# GitLab HTTPS push 使用 PAT，不使用 GitLab 账户密码。
+# 临时 askpass 文件只读取当前 shell 的 GITLAB_PAT，不会把 Token 写入 URL 或 .git/config。
+cat > "$WORK/gitlab-askpass.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  *Username*) printf '%s\n' "oauth2" ;;
+  *) printf '%s\n' "${GITLAB_PAT:?GITLAB_PAT is not set}" ;;
+esac
+EOF
+chmod 700 "$WORK/gitlab-askpass.sh"
+
+export GIT_ASKPASS="$WORK/gitlab-askpass.sh"
+export GIT_TERMINAL_PROMPT=0
+push_status=0
+git push gitlab main develop feature/order-discount --tags || push_status=$?
+if [ "$push_status" -eq 0 ]; then
+  git ls-remote --heads --tags gitlab || push_status=$?
+fi
+rm -f "$WORK/gitlab-askpass.sh"
+unset GIT_ASKPASS GIT_TERMINAL_PROMPT
+if [ "$push_status" -ne 0 ]; then
+  echo "ERROR: GitLab push failed. Check the clone URL and PAT permissions, then retry this block."
+  false
+fi
 ```
+
+这里不应再出现 `Username for ...` 或 `Password for ...` 提示。如果推送失败，先检查 `GITLAB_REPO_URL` 是否是当前项目的 HTTPS clone URL、`GITLAB_PAT` 是否仍在当前终端中，以及 PAT 是否具有 `write_repository` 或 `api` 权限；不要把 PAT 粘贴到远程 URL 中。
 
 输出必须包含：
 
