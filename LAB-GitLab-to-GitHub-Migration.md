@@ -417,7 +417,30 @@ curl --fail-with-body --silent --show-error \
 ```bash
 cd "$WORK"
 rm -rf source.git
-git clone --mirror "$GITLAB_REPO_URL" source.git
+test -n "${GITLAB_PAT:-}" || {
+  echo "ERROR: GITLAB_PAT is not set. Return to section 3.2 and inject the GitLab PAT."
+  exit 1
+}
+
+# mirror clone 同样通过 GitLab HTTPS 认证；禁止回退到用户名/密码交互提示。
+cat > "$WORK/gitlab-askpass.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  *Username*) printf '%s\n' "oauth2" ;;
+  *) printf '%s\n' "${GITLAB_PAT:?GITLAB_PAT is not set}" ;;
+esac
+EOF
+chmod 700 "$WORK/gitlab-askpass.sh"
+export GIT_ASKPASS="$WORK/gitlab-askpass.sh"
+export GIT_TERMINAL_PROMPT=0
+clone_status=0
+git clone --mirror "$GITLAB_REPO_URL" source.git || clone_status=$?
+rm -f "$WORK/gitlab-askpass.sh"
+unset GIT_ASKPASS GIT_TERMINAL_PROMPT
+if [ "$clone_status" -ne 0 ]; then
+  echo "ERROR: GitLab mirror clone failed. Check the clone URL and PAT permissions."
+  false
+fi
 cd source.git
 
 git for-each-ref --format='%(refname) %(objectname)' refs/heads refs/tags \
