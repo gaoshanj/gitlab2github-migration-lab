@@ -125,7 +125,7 @@ sudo apt-get install -y curl jq
 
 ## 3. 安全注入凭据
 
-不要把 PAT 写入仓库、`.env`、Git remote URL、命令行参数、Issue、PR 或日志。Codespace 关闭后环境变量会消失，但当前终端历史仍可能包含命令；因此使用 `read -s`。
+不要把 PAT 写入仓库、`.env`、Git remote URL、命令行参数、Issue、PR、日志或 shell 配置文件。推荐使用 **GitHub Codespaces Secrets** 持久保存密钥；密钥只会在 Codespace 运行时作为环境变量注入，不会写入仓库。临时演练也可以使用 `read -s`，但终端进程结束后必须重新注入。
 
 ### 3.1 GitHub 登录
 
@@ -138,6 +138,40 @@ gh auth setup-git
 ```
 
 `gh auth status` 必须显示正确的 GitHub 用户和 `github.com`。
+
+### 3.2 持久保存 Codespace 环境变量（推荐）
+
+在浏览器打开 `https://github.com/settings/codespaces`，进入 **Secrets → New secret**，分别创建以下两个 Codespaces secret：
+
+| Secret 名称 | 值 | 用途 |
+|---|---|---|
+| `GH_PAT` | GitHub GEI 所需的 classic PAT | `gh gl2gh` 身份验证 |
+| `GITLAB_PAT` | GitLab PAT（`api` 或 `write_repository`，以及读取所需权限） | GitLab API、Git push、mirror clone |
+
+创建 Secret 时，将 **Repository access** 限制为本实验仓库。不要选择把值写入仓库文件，也不要把值填写到 `devcontainer.json`。
+
+也可以在当前 Codespace 中通过 GitHub CLI 保存，输入值不会出现在命令历史中：
+
+```bash
+read -rsp "GitHub GEI classic PAT: " GH_PAT
+printf '\n'
+printf '%s' "$GH_PAT" | gh secret set GH_PAT --app codespaces
+
+read -rsp "GitLab PAT (api or write_repository): " GITLAB_PAT
+printf '\n'
+printf '%s' "$GITLAB_PAT" | gh secret set GITLAB_PAT --app codespaces
+```
+
+保存后必须 **重建或重新创建 Codespace**（VS Code 命令面板执行 `Codespaces: Rebuild Container`，或关闭后重新打开），新终端才会自动获得这两个环境变量。验证时只检查是否存在，不要输出值：
+
+```bash
+test -n "${GH_PAT:-}" && echo "PASS GH_PAT is set" || echo "FAIL GH_PAT is missing"
+test -n "${GITLAB_PAT:-}" && echo "PASS GITLAB_PAT is set" || echo "FAIL GITLAB_PAT is missing"
+```
+
+> Codespaces Secret 只解决“终端重启后环境变量消失”；它不会修复权限不足、过期 PAT 或错误的 GitLab URL。若本手册代码块输出 `ERROR`，先修复错误，再重新执行该代码块。
+
+### 3.3 当前终端临时注入（备用）
 
 GEI 单独需要环境变量 `GH_PAT`。它必须是符合 GEI 要求的 GitHub classic PAT：
 
@@ -338,7 +372,7 @@ git switch main
 ```bash
 git remote add gitlab "$GITLAB_REPO_URL"
 test -n "${GITLAB_PAT:-}" || {
-  echo "ERROR: GITLAB_PAT is not set. Return to section 3.2 and inject the GitLab PAT."
+  echo "ERROR: GITLAB_PAT is not set. Return to section 3.3 and inject the GitLab PAT."
   exit 1
 }
 
@@ -418,7 +452,7 @@ curl --fail-with-body --silent --show-error \
 cd "$WORK"
 rm -rf source.git
 test -n "${GITLAB_PAT:-}" || {
-  echo "ERROR: GITLAB_PAT is not set. Return to section 3.2 and inject the GitLab PAT."
+  echo "ERROR: GITLAB_PAT is not set. Return to section 3.3 and inject the GitLab PAT."
   exit 1
 }
 
