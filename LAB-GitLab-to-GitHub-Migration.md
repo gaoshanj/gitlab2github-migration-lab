@@ -546,9 +546,81 @@ printf 'milestones=%s\n' "$(jq 'length' milestones.json)"
 
 ---
 
-## 8. Lab 1：用 GEI 迁移 GitLab 项目
+## 8. Lab 1：代码迁移路径对比与演练
 
-### 8.1 安装和确认当前命令
+GitLab 到 GitHub 有两条不同的迁移路径。本 Lab 建议先演练手动镜像迁移，再使用 `gh gl2gh` 做包含 GitLab 元数据的迁移。两条路径必须使用不同的目标仓库，不能对同一个目标仓库先执行 `git push --mirror`、再执行 `gh gl2gh migrate-repo`。
+
+| 对比项 | `git clone --mirror` + `git push --mirror` | `gh gl2gh migrate-repo` |
+|---|---|---|
+| 迁移内容 | Git commit、所有 branch、tag 和 Git refs | Git 历史，以及 GEI 支持范围内的 Issue、Merge Request、评论、Label 等元数据 |
+| GitLab CI/CD | 不迁移 | 不会自动变成可运行的 GitHub Actions |
+| 成员、权限、Team | 不迁移 | 不直接替代 GitHub 组织权限设计 |
+| GitLab Variables、Runner、Webhook | 不迁移 | 仍需单独盘点和重建 |
+| 前置条件 | 能读取 GitLab 仓库并能向 GitHub 推送 | GitHub Enterprise Cloud、GEI 权限、GitLab/GitHub PAT 和组织配置 |
+| 适用场景 | 只需要 Git 代码和 refs，或作为应急/回滚方案 | 需要尽可能保留 GitLab 项目协作元数据的正式迁移 |
+| 风险 | 目标仓库只有代码，Issue/MR 等协作记录会丢失 | 受 GEI 支持范围和组织授权限制，迁移后仍需验收 |
+
+### 8.1 Lab 1A：Git 镜像迁移并手动推送
+
+这条路径只迁移 Git 对象和 refs，不迁移 GitLab Issue、Merge Request、评论、Label、Wiki、成员、变量或 CI/CD。执行前必须已完成 7.1 的 `source.git` 镜像盘点，并确认 `GITLAB_PAT` 已通过 Codespaces Secret 或当前终端注入。
+
+创建一个专门用于手动镜像迁移的空 GitHub 仓库。不要使用 GEI 试迁移或正式迁移目标：
+
+```bash
+export MANUAL_REPO="${GITHUB_REPO}-manual-mirror"
+gh repo view "$GITHUB_ORG/$MANUAL_REPO" >/dev/null 2>&1 && {
+  echo "FAIL: manual mirror target already exists; choose another MANUAL_REPO"
+  exit 1
+} || true
+
+gh repo create "$GITHUB_ORG/$MANUAL_REPO" \
+  --private \
+  --description "Manual Git mirror for migration lab"
+gh auth setup-git
+```
+
+从镜像仓库向 GitHub 推送全部 refs。`gh auth setup-git` 负责 GitHub 认证；`GIT_TERMINAL_PROMPT=0` 防止认证失败时退回用户名/密码提示：
+
+```bash
+export MANUAL_TARGET_URL="https://github.com/$GITHUB_ORG/$MANUAL_REPO.git"
+test -d "$WORK/source.git" || {
+  echo "ERROR: $WORK/source.git is missing. Complete section 7.1 first."
+  exit 1
+}
+
+export GIT_TERMINAL_PROMPT=0
+mirror_status=0
+git -C "$WORK/source.git" push --mirror "$MANUAL_TARGET_URL" || mirror_status=$?
+if [ "$mirror_status" -eq 0 ]; then
+  gh repo edit "$GITHUB_ORG/$MANUAL_REPO" --default-branch main || mirror_status=$?
+fi
+if [ "$mirror_status" -ne 0 ]; then
+  echo "ERROR: manual mirror push failed. Check GitHub permissions and source refs."
+  unset GIT_TERMINAL_PROMPT
+  false
+fi
+unset GIT_TERMINAL_PROMPT
+```
+
+验收 branch、tag 和 commit 是否完整：
+
+```bash
+export GIT_TERMINAL_PROMPT=0
+git ls-remote --heads --tags "$MANUAL_TARGET_URL"
+gh api "repos/$GITHUB_ORG/$MANUAL_REPO/branches" --jq '.[].name'
+gh api "repos/$GITHUB_ORG/$MANUAL_REPO/tags" --jq '.[].name'
+git -C "$WORK/source.git" rev-list --all --count
+gh api "repos/$GITHUB_ORG/$MANUAL_REPO/commits?per_page=1" --jq 'length'
+unset GIT_TERMINAL_PROMPT
+```
+
+必须确认目标包含 `main`、`develop`、`feature/order-discount`、`v0.1.0` 和 `v0.2.0`。然后记录限制：手动镜像迁移后，GitHub 仓库中的 Issue、PR、Label、Wiki、CODEOWNERS、Actions、Ruleset、Teams、Secrets 和 Projects 仍需单独创建或迁移。
+
+> `git push --mirror` 会覆盖目标仓库中的同名 refs，并可能删除目标中源镜像没有的 refs。只能对新建空仓库执行；不要把它当作增量迁移命令。
+
+### 8.2 Lab 1B：用 GEI 迁移 GitLab 项目
+
+### 8.2.1 安装和确认当前命令
 
 ```bash
 gh extension install github/gh-gl2gh 2>/dev/null || true
@@ -566,7 +638,7 @@ gh gl2gh migrate-repo --help
 - `--github-repo`
 - `--use-github-storage`
 
-### 8.2 先做试迁移
+### 8.2.2 先做试迁移
 
 GitHub 目标仓库名称必须是不存在的新名称。使用 `-trial` 后缀，避免覆盖错误目标：
 
@@ -599,7 +671,7 @@ gh gl2gh wait-for-migration --help
 
 迁移完成后记录输出中的 migration URL/ID。不要把 PAT 或完整认证 URL写进证据。
 
-### 8.3 试迁移验收
+### 8.2.3 试迁移验收
 
 ```bash
 gh repo view "$GITHUB_ORG/$TRIAL_REPO" --json nameWithOwner,isPrivate,defaultBranchRef
@@ -613,7 +685,7 @@ gh pr list --repo "$GITHUB_ORG/$TRIAL_REPO" --state all --limit 100
 
 注意：目标仓库中的权限、Team、Secrets、Actions、Projects 不会因为 GEI 自动达到最终状态。
 
-### 8.4 正式迁移
+### 8.2.4 正式迁移
 
 试迁移验收通过后，使用正式仓库名。正式迁移前必须确认目标名称为空：
 
