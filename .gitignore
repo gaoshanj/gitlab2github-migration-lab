@@ -1,0 +1,17 @@
+# Local migration rehearsal artifacts
+/source.git/
+/target-checkout/
+/migration-inventory.csv
+/source-refs.txt
+/target-refs.txt
+/prepare-migration-lab.ps1
+
+# Credentials and local environment
+.env
+.env.*
+!.env.example
+
+# Dependency/build output
+node_modules/
+coverage/
+dist/

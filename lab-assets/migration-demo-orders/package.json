@@ -1,0 +1,11 @@
+{
+  "name": "migration-demo-orders",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "lint": "node --check src/orders.js",
+    "build": "node -e \"console.log('build ok')\""
+  }
+}

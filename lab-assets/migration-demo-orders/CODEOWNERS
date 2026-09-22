@@ -1,0 +1,4 @@
+# Place this file at .github/CODEOWNERS after migration.
+* @migration-demo-orders/migration-developers
+/src/ @migration-demo-orders/migration-developers
+/docs/ @migration-demo-orders/migration-reviewers

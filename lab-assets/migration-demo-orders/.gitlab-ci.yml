@@ -1,0 +1,25 @@
+stages:
+  - validate
+  - build
+
+variables:
+  EXAMPLE_FEATURE_FLAG: "true"
+
+validate:
+  image: node:20
+  stage: validate
+  script:
+    - npm ci
+    - npm run lint
+    - npm test
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+
+build:
+  image: node:20
+  stage: build
+  script:
+    - npm ci
+    - npm run build
